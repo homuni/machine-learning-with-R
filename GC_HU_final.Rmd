@@ -1,0 +1,142 @@
+---
+title: "Glass type classificaton with KNN, SVM, and LDA"
+author: "Huihui Hu"
+date: "7/23/2020"
+output:
+  html_document:
+    df_print: paged
+---
+#### 1. Read the table and download packages
+
+```{r}
+library(e1071)
+library(caret)
+library(class)
+library(MASS)
+library(ISLR)
+library("plot3D")
+glasscsv <- read.csv("~/glasscsv.csv", sep=";")
+summary(glasscsv) 
+glasscsv$Type = as.factor(glasscsv$Type) #Type as factor
+summary(glasscsv)
+pairs(glasscsv,main = "Glass types", col = c("red", "purple","yellow","blue","green","black"))
+pairs(~ RI + Type, data=glasscsv, main = "Glass types and RI", col = c("red", "purple","yellow","blue","green","black")) 
+pairs(~ Na + Type, data=glasscsv, main = "Glass types and Na", col = c("red",  "purple","yellow","blue","green","black")) 
+pairs(~ Mg + Type, data=glasscsv, main = "Glass types and Mg", col = c("red",  "purple","yellow","blue","green","black")) 
+pairs(~ Al + Type, data=glasscsv, main = "Glass types and Al", col = c("red",  "purple","yellow","blue","green","black")) 
+pairs(~ Si + Type, data=glasscsv, main = "Glass types and Si", col = c("red",  "purple","yellow","blue","green","black")) 
+pairs(~ K + Type, data=glasscsv, main = "Glass types and K", col = c("red",  "purple","yellow","blue","green","black")) 
+pairs(~ Ca + Type, data=glasscsv, main = "Glass types and Ca", col = c("red", "purple","yellow","blue","green","black")) 
+pairs(~ Ba + Type, data=glasscsv, main = "Glass types and Ba", col = c("red",  "purple","yellow","blue","green","black")) 
+pairs(~ Fe + Type, data=glasscsv, main = "Glass types and Fe", col = c("red",  "purple","yellow","blue","green","black")) 
+```
+From the plot, it is hard to find any corelations in the pairs plot.
+
+
+#### 2.Set up the train data and test data
+
+```{r}
+set.seed(1000)
+index <- sample(2,nrow(glasscsv),replace = TRUE,prob=c(0.7,0.3))
+traindata <- glasscsv[index==1,]
+testdata <- glasscsv[index==2,]
+```
+
+#### 3.KNN-accuracy of variable K
+
+```{r}
+ss<-c(1:10)
+vv<-ss
+for (i in ss) {
+knn.predplot = knn(traindata,testdata,traindata$Type, k=i)
+knn.Freq<-table(knn.predplot, testdata$Type)
+knn.accu <- sum(diag(knn.Freq))/sum(knn.Freq)
+vv[i]<-knn.accu
+iaccu=paste("i=",i," accuracy=",knn.accu)
+print(iaccu)
+}
+plot(ss,vv,xlab = "k",ylab = "accuracy",main = "Accuracy of variable k",col="red")
+```
+
+#### 4.k=1 is best for this train data
+
+```{r}
+knn.pred.best = knn(traindata,testdata,traindata$Type, k=1)
+knn.Freq.best<-table(knn.pred.best, testdata$Type)
+knn.accu.best <- sum(diag(knn.Freq.best))/sum(knn.Freq.best)
+knn.accu.best
+confusionMatrix(knn.pred.best,testdata$Type)
+##According to the balanced accuracy, KNN performs excellent in every types.
+```
+
+#### 5. The best SVM model, when kernel= "linear"
+
+```{r}
+set.seed(1)
+tune.out.l = tune(svm,Type~., data=traindata, kernel="linear", ranges=list(cost=c(0.001, 0.01, 0.1, 1,5,10,15,20,50,100)))
+svm.l.bestmod=tune.out.l$best.model
+summary(svm.l.bestmod)
+svm.l.pred   = predict(svm.l.bestmod, testdata)
+svm.l.Freq<-table(predict=svm.l.pred , truth=testdata$Type)
+svm.l.accu <- sum(diag(svm.l.Freq))/sum(svm.l.Freq)
+svm.l.accu
+```
+
+#### 6. Visualisation of different cost in missclassification error performance, when kernel = "radial"
+
+```{r}
+tune.out.plot = tune(svm, Type~., data=traindata, kernel="radial", ranges=list(cost=c(0.001,0.002,0.01,0.05,0.1,0.2,0.5,1,5,10,20,50,100,200),gamma=0.5))
+summary(tune.out.plot)
+x<-tune.out.plot$performances$cost
+x
+y<-tune.out.plot$performances$error
+y
+plot(log(x),y,type="l",xlab="log(cost)",ylab="missclassification error",main="missclassification error of variable cost",col="red")
+```
+
+#### 7. The best SVM model, when kernel= "radial"
+
+```{r}
+set.seed(1)
+tune.out.r = tune(svm, Type~., data=traindata, kernel="radial", ranges=list(cost=c(0.1,0.2,0.5,1,5,10,20,100), gamma=c(0.5,1,2,5,10)))
+summary(tune.out.r)
+bestmod.r=tune.out.r$best.model
+summary(bestmod.r)
+svm.r.pred=predict(bestmod.r, testdata)
+svm.r.Freq<-table(predict=svm.r.pred, truth=testdata$Type)
+svm.r.Freq
+svm.r.accu.best <- sum(diag(svm.r.Freq))/sum(svm.r.Freq)
+svm.r.accu.best
+confusionMatrix(svm.r.pred,testdata$Type)
+```
+
+#### 8. Comparison with LDA
+
+```{r}
+lda.fit = lda(Type~., data = traindata)
+plot(lda.fit, main = "Glass types in LDA", col=c("red", "purple","yellow","blue","green","black"))
+summary(lda.fit)
+lda.fit
+lda.pred = predict(lda.fit, testdata)
+class(lda.pred)
+lda.Freq<-table(predict=lda.pred$class, truth=testdata$Type)
+lda.Freq
+lda.accu<-mean(lda.pred$class==testdata$Type)
+lda.accu
+```
+
+#### 9.Visualisation of KNN in 3D plot
+```{r}
+#There is no possibility for nine dimensional plot.
+scatter3D(glasscsv$RI,glasscsv$Na,glasscsv$Mg, colvar = as.integer(glasscsv$Type), main = "KNN in 3D", xlab ="RI", ylab ="Na",zlab ="Mg",col =c("red","purple","yellow","blue","green","black"),colkey = list(at = c(1:6), labels = c("1", "2", "3","5","6","7")))
+```
+
+#### 10.Conclusion
+```{r}
+accucom<- matrix(c(knn.accu.best, svm.r.accu.best, lda.accu), ncol = 1, byrow = TRUE)
+colnames(accucom)<-c("accuracy")
+rownames(accucom)<-c("KNN","SVM","LDA")
+accucom<-as.table(accucom)
+accucom
+```
+*KNN is the best method.* 
